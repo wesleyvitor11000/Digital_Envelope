@@ -1,75 +1,96 @@
 from asyncio.windows_events import NULL
 from email.policy import default
+from statistics import mode
 from Crypto.Cipher import AES, DES, ARC4, PKCS1_OAEP
 from tkinter import Tk
-from tkinter.filedialog import askopenfilename
+from tkinter.filedialog import askopenfilename, asksaveasfilename
 from Crypto.Random import get_random_bytes
 from Crypto.PublicKey import RSA
 import base64
 
-key = RSA.generate(2048)
-private_key = key.export_key()
-file_out = open("private.pem", "wb")
-file_out.write(private_key)
-file_out.close()
+def encryptRSA(cipher_rsa, key, encryptedKeyFileName, nonce = NULL, tag = NULL):
+    print("Encriptando chave")
+    enc_session_key = cipher_rsa.encrypt(key)
 
-public_key = key.publickey().export_key()
-file_out_key = open("receiver.pem", "wb")
-file_out_key.write(public_key)
-file_out_key.close() 
+    key_out = open(encryptedKeyFileName, "wb")
 
-file_out = open("MensagemCriptografada.bin", "wb")
-recipient_key = RSA.import_key(open("receiver.pem").read())
+    ls = [enc_session_key]
+    if not nonce == NULL:
+        ls.append(nonce)
 
-def encryptMessage(fileName, receiverKey, algorithm):
+    if not tag == NULL:
+        ls.append(tag)
+
+    [key_out.write(base64.b64encode(x)) for x in ls ]
+    key_out.close()
+
+
+def encryptMessage(fileName, publicKey, encryptedFileName, encryptedKeyFileName, algorithm):
 
     file = open(fileName, "rb")
+    recipient_key = RSA.import_key(open(publicKey).read())
+    
+    cipher_rsa = PKCS1_OAEP.new(recipient_key)
     content = file.read()
+    encrypted = ""
 
+    print("Encriptando mensagem...")
     match algorithm:
         case '1':
-            encryptAES(content)
+            encrypted = encryptAES(content, cipher_rsa, encryptedKeyFileName)
         case '2':
-            encryptDES(content)
+            encrypted = encryptDES(content, cipher_rsa, encryptedKeyFileName)
         case '3':
-            encryptRC4(content)
+            encrypted = encryptRC4(content, cipher_rsa, encryptedKeyFileName)
         case _:
             print("invalid")
 
-def encryptAES(content):
+    file_out = open(encryptedFileName, "wb")
+    file_out.write(base64.b64encode(encrypted))
+    file_out.close()
+
+def encryptAES(content, cipher_rsa, encryptedKeyFileName):
 
     key = get_random_bytes(16)
     cipher = AES.new(key, AES.MODE_EAX)
     encrypted, tag = cipher.encrypt_and_digest(content)
-    enc_session_key = cipher_rsa.encrypt(key)
+    encryptRSA(cipher_rsa, key, encryptedKeyFileName, cipher.nonce, tag)
 
-    [ file_out.write(base64.b64encode(x)) for x in (enc_session_key, cipher.nonce, tag, encrypted) ]
-    file_out.close()
+    return encrypted
 
 
-def encryptDES(content):
+def encryptDES(content, cipher_rsa, encryptedKeyFileName):
 
     key = get_random_bytes(8)
     cipher = DES.new(key, DES.MODE_EAX)
     encrypted = cipher.encrypt(content)
-    enc_session_key = cipher_rsa.encrypt(key)
+    encryptRSA(cipher_rsa, key, encryptedKeyFileName, cipher.nonce)
 
-    [ file_out.write(base64.b64encode(x)) for x in (enc_session_key, cipher.nonce, b"\n", encrypted) ]
-    file_out.close()
+    return encrypted
 
-def encryptRC4(content):
+def encryptRC4(content, cipher_rsa, encryptedKeyFileName):
     key = get_random_bytes(16)
-    cipher_arc4 = ARC4.new(key)
-    ciphertext = cipher_arc4.encrypt(content)
-    enc_session_key = cipher_rsa.encrypt(key)
+    cipher = ARC4.new(key)
+    encrypted = cipher.encrypt(content)
+    encryptRSA(cipher_rsa, key, encryptedKeyFileName)
 
-    [ file_out.write(base64.b64encode(x)) for x in (enc_session_key, b"\n", b"\n", ciphertext) ]
-    file_out.close()
+    return encrypted
 
-print('select file to encrypt:')
+print("Selecione o arquivo para encriptar:")
 Tk().withdraw()
 fileName = askopenfilename()
-print('choose the algorithm:\n1 - AES \n2 - DES \n3 - RC4')
+
+print("Selecione a chave publica do destinatario:")
+publicKey = askopenfilename()
+
+print("Salvar mensagem criptografada como:")
+cryptedName = asksaveasfilename()
+
+print("Salvar chave criptografada como:")
+cryptedKeyName = asksaveasfilename()
+
+print("Escolha o algoritmo de encriptação:\n1 - AES \n2 - DES \n3 - RC4")
 choice = input()
-cipher_rsa = PKCS1_OAEP.new(recipient_key)
-encryptMessage(fileName, 0, choice)
+
+encryptMessage(fileName, publicKey, cryptedName, cryptedKeyName, choice)
+print("pronto!")
